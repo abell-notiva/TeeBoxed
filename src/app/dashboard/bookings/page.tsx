@@ -4,6 +4,13 @@
 import { useState, useEffect, Suspense } from 'react';
 import { Button } from '@/components/ui/button';
 import { PlusCircle } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { BayStatus, Bay } from './bay-status';
 import { BookingCalendar, Booking, BookingFormData } from './booking-calendar';
 import { Member } from '../members/members-table';
@@ -44,7 +51,8 @@ function BookingsPageContent() {
     const searchParams = useSearchParams();
     const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
-    const [facilityId, setFacilityId] = useState<string | null>(null);
+    const [facilities, setFacilities] = useState<{id: string, name: string}[]>([]);
+    const [selectedFacility, setSelectedFacility] = useState<string | null>(null);
     const [facilitySettings, setFacilitySettings] = useState<FacilitySettings>({});
 
     const [bays, setBays] = useState<Bay[]>([]);
@@ -79,18 +87,22 @@ function BookingsPageContent() {
     useEffect(() => {
         if (!user) return;
         
-        const fetchFacility = async () => {
+        const fetchFacilities = async () => {
             setLoading(true);
-            const q = query(collection(db, 'facilities'), where('ownerId', '==', user.uid));
-            const querySnapshot = await getDocs(q);
-            if (!querySnapshot.empty) {
-                const facilityDoc = querySnapshot.docs[0];
-                setFacilityId(facilityDoc.id);
-                setFacilitySettings(facilityDoc.data().settings || {});
+            try {
+                const q = query(collection(db, 'facilities'), where('ownerId', '==', user.uid));
+                const querySnapshot = await getDocs(q);
+                const userFacilities = querySnapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name as string }));
+                setFacilities(userFacilities);
+                if (userFacilities.length > 0) {
+                    setSelectedFacility(userFacilities[0].id);
+                }
+            } catch (error) {
+                console.error('Error fetching facilities:', error);
             }
             setLoading(false);
         };
-        fetchFacility();
+        fetchFacilities();
     }, [user]);
 
     // Client-side effect to check for expired bookings
@@ -110,20 +122,20 @@ function BookingsPageContent() {
     }, [bookings]);
 
     useEffect(() => {
-        if (!facilityId) {
+        if (!selectedFacility) {
             setBays([]);
             setBookings([]);
             setMembers([]);
             return;
         };
 
-        const bayQuery = query(collection(db, `facilities/${facilityId}/bays`), orderBy('name'));
+        const bayQuery = query(collection(db, `facilities/${selectedFacility}/bays`), orderBy('name'));
         const bayUnsubscribe = onSnapshot(bayQuery, (snapshot) => {
             const fetchedBays = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Bay));
             setBays(fetchedBays);
         });
         
-        const bookingQuery = query(collection(db, `facilities/${facilityId}/bookings`));
+        const bookingQuery = query(collection(db, `facilities/${selectedFacility}/bookings`));
         const bookingUnsubscribe = onSnapshot(bookingQuery, (snapshot) => {
             const fetchedBookings = snapshot.docs.map(doc => {
                 const data = doc.data();
@@ -137,7 +149,7 @@ function BookingsPageContent() {
             setBookings(fetchedBookings);
         });
 
-        const memberQuery = query(collection(db, `facilities/${facilityId}/members`));
+        const memberQuery = query(collection(db, `facilities/${selectedFacility}/members`));
         const memberUnsubscribe = onSnapshot(memberQuery, (snapshot) => {
              const fetchedMembers = snapshot.docs.map(doc => {
                 const data = doc.data();
@@ -152,7 +164,7 @@ function BookingsPageContent() {
         });
 
         // Also listen for facility settings changes
-        const facilityRef = doc(db, 'facilities', facilityId);
+        const facilityRef = doc(db, 'facilities', selectedFacility);
         const facilityUnsubscribe = onSnapshot(facilityRef, (docSnap) => {
             if (docSnap.exists()) {
                 setFacilitySettings(docSnap.data().settings || {});
@@ -166,11 +178,11 @@ function BookingsPageContent() {
             facilityUnsubscribe();
         };
 
-    }, [facilityId]);
+    }, [selectedFacility]);
 
 
     const handleSaveBooking = async (bookingData: BookingFormData, bypassChecks = false) => {
-        if (!facilityId || !user || !user.displayName) {
+        if (!selectedFacility || !user || !user.displayName) {
             setError("No facility ID or user info, cannot save booking.");
             return;
         }
@@ -253,11 +265,11 @@ function BookingsPageContent() {
         };
 
         const batch = writeBatch(db);
-        const logRef = doc(collection(db, `facilities/${facilityId}/auditLogs`));
+        const logRef = doc(collection(db, `facilities/${selectedFacility}/auditLogs`));
 
         if (bookingData.id) {
             // Update existing booking
-            const bookingRef = doc(db, `facilities/${facilityId}/bookings`, bookingData.id);
+            const bookingRef = doc(db, `facilities/${selectedFacility}/bookings`, bookingData.id);
             const originalBooking = bookings.find(b => b.id === bookingData.id);
             batch.update(bookingRef, bookingPayload);
 
@@ -286,13 +298,13 @@ function BookingsPageContent() {
 
         } else {
             // Create new booking
-            const bookingRef = doc(collection(db, `facilities/${facilityId}/bookings`));
+            const bookingRef = doc(collection(db, `facilities/${selectedFacility}/bookings`));
             bookingPayload.status = 'confirmed';
             bookingPayload.createdAt = serverTimestamp();
             batch.set(bookingRef, bookingPayload);
 
             // Also update the bay status to 'booked'
-            const bayRef = doc(db, `facilities/${facilityId}/bays`, selectedBay.id);
+            const bayRef = doc(db, `facilities/${selectedFacility}/bays`, selectedBay.id);
             batch.update(bayRef, { status: 'booked' });
             
             batch.set(logRef, {
@@ -323,18 +335,18 @@ function BookingsPageContent() {
     };
     
     const handleUpdateBayStatus = async (bayId: string, status: Bay['status']) => {
-        if (!facilityId || !user || !user.displayName) {
+        if (!selectedFacility || !user || !user.displayName) {
             setError("No facility ID, cannot update bay.");
             return;
         }
         
-        const bayRef = doc(db, `facilities/${facilityId}/bays`, bayId);
+        const bayRef = doc(db, `facilities/${selectedFacility}/bays`, bayId);
         const batch = writeBatch(db);
 
         batch.update(bayRef, { status });
 
         // Add audit log for status change
-        const logRef = doc(collection(db, `facilities/${facilityId}/auditLogs`));
+        const logRef = doc(collection(db, `facilities/${selectedFacility}/auditLogs`));
         const bay = bays.find(b => b.id === bayId);
 
         batch.set(logRef, {
@@ -356,16 +368,16 @@ function BookingsPageContent() {
     };
     
     const handleUpdateBookingStatus = async (bookingId: string, status: Booking['status']) => {
-        if (!facilityId || !user || !user.displayName) return;
+        if (!selectedFacility || !user || !user.displayName) return;
 
-        const bookingRef = doc(db, `facilities/${facilityId}/bookings`, bookingId);
+        const bookingRef = doc(db, `facilities/${selectedFacility}/bookings`, bookingId);
         const booking = bookings.find(b => b.id === bookingId);
         if (!booking) return;
 
         const batch = writeBatch(db);
         batch.update(bookingRef, { status });
 
-        const bayRef = doc(db, `facilities/${facilityId}/bays`, booking.bayId);
+        const bayRef = doc(db, `facilities/${selectedFacility}/bays`, booking.bayId);
         if (status === 'checked-in') {
             batch.update(bayRef, { status: 'in-use' });
         } else if (status === 'no-show' || status === 'canceled') {
@@ -373,7 +385,7 @@ function BookingsPageContent() {
         }
         
         // Add audit log for status change
-        const logRef = doc(collection(db, `facilities/${facilityId}/auditLogs`));
+        const logRef = doc(collection(db, `facilities/${selectedFacility}/auditLogs`));
         batch.set(logRef, {
             action: 'update',
             changedBy: user.displayName,
@@ -393,9 +405,9 @@ function BookingsPageContent() {
     };
 
     const handleCancelBooking = async (bookingId: string) => {
-        if (!facilityId) return;
+        if (!selectedFacility) return;
 
-        const bookingRef = doc(db, `facilities/${facilityId}/bookings`, bookingId);
+        const bookingRef = doc(db, `facilities/${selectedFacility}/bookings`, bookingId);
         const booking = bookings.find(b => b.id === bookingId);
         if (!booking) return;
 
@@ -411,33 +423,33 @@ function BookingsPageContent() {
         batch.update(bookingRef, updatePayload);
         
         // Make the bay available again
-        const bayRef = doc(db, `facilities/${facilityId}/bays`, booking.bayId);
+        const bayRef = doc(db, `facilities/${selectedFacility}/bays`, booking.bayId);
         batch.update(bayRef, { status: 'available' });
 
         await batch.commit();
     }
     
     const handleCompleteBooking = async (bookingId: string) => {
-        if (!facilityId) return;
+        if (!selectedFacility) return;
         const booking = bookings.find(b => b.id === bookingId);
         if (!booking) return;
 
         const batch = writeBatch(db);
 
         // Set booking to completed
-        const bookingRef = doc(db, `facilities/${facilityId}/bookings`, bookingId);
+        const bookingRef = doc(db, `facilities/${selectedFacility}/bookings`, bookingId);
         batch.update(bookingRef, { status: 'completed' });
 
         // Set bay to available
-        const bayRef = doc(db, `facilities/${facilityId}/bays`, booking.bayId);
+        const bayRef = doc(db, `facilities/${selectedFacility}/bays`, booking.bayId);
         batch.update(bayRef, { status: 'available' });
 
         await batch.commit();
     }
     
     const handleExtendTime = async (bookingId: string, minutes: number) => {
-        if (!facilityId) return;
-        const bookingRef = doc(db, `facilities/${facilityId}/bookings`, bookingId);
+        if (!selectedFacility) return;
+        const bookingRef = doc(db, `facilities/${selectedFacility}/bookings`, bookingId);
         const bookingDoc = await getDoc(bookingRef);
         if (!bookingDoc.exists()) return;
 
@@ -457,8 +469,15 @@ function BookingsPageContent() {
         return <div className="flex items-center justify-center h-screen"><p>Loading...</p></div>;
     }
 
-    if (!facilityId && !loading) {
-        return <div className="flex items-center justify-center h-screen"><p>No facility found for this account.</p></div>;
+    if (facilities.length === 0 && !loading) {
+        return (
+            <div className="flex flex-col items-center justify-center h-screen space-y-4">
+                <p className="text-muted-foreground">No facilities found. Create your first facility to get started.</p>
+                <Button onClick={() => router.push('/register')}>
+                    <PlusCircle className="mr-2 h-4 w-4" /> Create Facility
+                </Button>
+            </div>
+        );
     }
 
 
@@ -466,13 +485,23 @@ function BookingsPageContent() {
         <div className="flex flex-col sm:gap-4 sm:py-4 flex-grow">
             <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
                 <h1 className="text-xl font-semibold">Bays & Bookings</h1>
-                <div className="ml-auto">
-                <Button size="sm" className="h-8 gap-1" onClick={handleCreateBookingClick}>
-                    <PlusCircle className="h-3.5 w-3.5" />
-                    <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
-                        Create Booking
-                    </span>
-                </Button>
+                <div className="ml-auto flex items-center gap-2">
+                    <Select value={selectedFacility ?? ""} onValueChange={setSelectedFacility}>
+                        <SelectTrigger className="w-[180px]">
+                            <SelectValue placeholder="Select Facility" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {facilities.map(f => (
+                                <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <Button size="sm" className="h-8 gap-1" onClick={handleCreateBookingClick}>
+                        <PlusCircle className="h-3.5 w-3.5" />
+                        <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
+                            Create Booking
+                        </span>
+                    </Button>
                 </div>
             </header>
             <main className="grid flex-1 items-start gap-4 p-4 sm:px-6 sm:py-0 md:gap-8">
