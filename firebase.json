@@ -1,6 +1,27 @@
 {
+  "hosting": {
+    "source": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ]
+  },
   "firestore": {
+    "database": "(default)",
+    "location": "nam5",
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
+  },
+  "apphosting": {
+    "backendId": "teeboxed-prod",
+    "rootDir": "/",
+    "ignore": [
+      "node_modules",
+      ".git",
+      "firebase-debug.log",
+      "firebase-debug.*.log",
+      "functions"
+    ]
   }
 }

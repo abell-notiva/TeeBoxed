@@ -1,26 +1,19 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { getAuth } from 'firebase/auth';
-import { app } from '@/lib/firebase'; // your client SDK initializer
-
-type Props = {
-  // If your page passes these in as props, keep them.
-  // Otherwise this component can render its own mini-form.
-  initialFacilityName?: string;
-  initialSlug?: string;
-  initialAddress?: string;
-};
+import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import { app } from '@/lib/firebase';
+import { useWizardStore } from '@/hooks/use-wizard-store';
+import { useRouter } from 'next/navigation';
 
 function isValidSlug(s: string) {
   return /^[a-z0-9-]{3,50}$/.test(s);
 }
 
-export default function ReviewStep(props: Props) {
+export default function ReviewStep() {
   const auth = useMemo(() => getAuth(app), []);
-  const [facilityName, setFacilityName] = useState(props.initialFacilityName ?? '');
-  const [slug, setSlug] = useState((props.initialSlug ?? '').toLowerCase());
-  const [address, setAddress] = useState(props.initialAddress ?? '');
+  const router = useRouter();
+  const { account, facility, plan, bays, reset } = useWizardStore();
   const [slugStatus, setSlugStatus] = useState<'idle' | 'checking' | 'ok' | 'taken' | 'invalid'>('idle');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,11 +24,11 @@ export default function ReviewStep(props: Props) {
     let cancelled = false;
 
     async function check() {
-      if (!slug) return setSlugStatus('idle');
-      if (!isValidSlug(slug)) return setSlugStatus('invalid');
+      if (!facility.slug) return setSlugStatus('idle');
+      if (!isValidSlug(facility.slug)) return setSlugStatus('invalid');
       setSlugStatus('checking');
       try {
-        const r = await fetch(`/api/facilities/check-slug?slug=${encodeURIComponent(slug)}`);
+        const r = await fetch(`/api/facilities/check-slug?slug=${encodeURIComponent(facility.slug)}`);
         const data = await r.json().catch(() => ({}));
         if (!cancelled) setSlugStatus(data.ok ? 'ok' : 'taken');
       } catch {
@@ -48,18 +41,18 @@ export default function ReviewStep(props: Props) {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [slug]);
+  }, [facility.slug]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSuccess(false);
 
-    if (!facilityName.trim()) {
+    if (!facility.name.trim()) {
       setError('Please enter a facility name.');
       return;
     }
-    if (!isValidSlug(slug)) {
+    if (!isValidSlug(facility.slug)) {
       setError('Slug must be 3–50 chars, lowercase letters, numbers, or hyphens.');
       return;
     }
@@ -70,13 +63,12 @@ export default function ReviewStep(props: Props) {
 
     setSubmitting(true);
     try {
-      const user = auth.currentUser;
-      if (!user) {
-        setError('You must be signed in first.');
-        return;
-      }
+      // First create the user account
+      const userCredential = await createUserWithEmailAndPassword(auth, account.email, account.password);
+      const user = userCredential.user;
       const token = await user.getIdToken();
 
+      // Then create the facility
       const res = await fetch('/api/facilities/create', {
         method: 'POST',
         headers: {
@@ -84,10 +76,12 @@ export default function ReviewStep(props: Props) {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          facilityName: facilityName.trim(),
-          slug: slug.trim().toLowerCase(),
-          address: address.trim() || null,
-          plan: { name: 'pro' }, // adjust if you support plan selection here
+          facilityName: facility.name.trim(),
+          slug: facility.slug.trim().toLowerCase(),
+          address: `${facility.address}, ${facility.city}, ${facility.state} ${facility.zip}`.trim(),
+          plan: { name: plan.id },
+          bays: bays,
+          ownerName: account.fullName,
         }),
       });
 
@@ -106,8 +100,12 @@ export default function ReviewStep(props: Props) {
       }
 
       setSuccess(true);
-      // Optional: redirect the user to their new facility domain
-      // window.location.href = `https://${slug}.${process.env.NEXT_PUBLIC_MAIN_DOMAIN ?? 'teeboxed.com'}/dashboard`;
+      reset(); // Clear wizard data
+      
+      // Redirect to the new facility dashboard
+      setTimeout(() => {
+        router.push(`/${facility.slug}/dashboard`);
+      }, 2000);
     } catch (err: any) {
       setError(err?.message ?? 'Unexpected error.');
     } finally {
@@ -116,58 +114,96 @@ export default function ReviewStep(props: Props) {
   }
 
   return (
-    <div className="max-w-2xl mx-auto p-4 text-slate-100">
-      <h2 className="text-xl font-semibold mb-4">Review & Create Facility</h2>
+    <div className="space-y-6">
+      <div className="text-center">
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Review Your Information</h2>
+        <p className="text-gray-600">Please review all details before creating your facility</p>
+      </div>
+
+      {/* Account Information */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <h3 className="font-semibold text-gray-900 mb-3">Account Information</h3>
+        <div className="space-y-2 text-sm">
+          <div><span className="font-medium">Name:</span> {account.fullName}</div>
+          <div><span className="font-medium">Email:</span> {account.email}</div>
+        </div>
+      </div>
+
+      {/* Facility Information */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <h3 className="font-semibold text-gray-900 mb-3">Facility Information</h3>
+        <div className="space-y-2 text-sm">
+          <div><span className="font-medium">Name:</span> {facility.name}</div>
+          <div><span className="font-medium">Subdomain:</span> {facility.slug}.{process.env.NEXT_PUBLIC_MAIN_DOMAIN ?? 'teeboxed.com'}</div>
+          <div><span className="font-medium">Address:</span> {facility.address}, {facility.city}, {facility.state} {facility.zip}</div>
+          <div><span className="font-medium">Time Zone:</span> {facility.timeZone}</div>
+        </div>
+        <div className="mt-2">
+          <span className="text-xs">
+            {slugStatus === 'checking' && '🔄 Checking availability…'}
+            {slugStatus === 'ok' && '✅ Subdomain available'}
+            {slugStatus === 'taken' && '❌ Subdomain taken'}
+            {slugStatus === 'invalid' && '❌ Invalid subdomain format'}
+          </span>
+        </div>
+      </div>
+
+      {/* Plan Information */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <h3 className="font-semibold text-gray-900 mb-3">Selected Plan</h3>
+        <div className="space-y-2 text-sm">
+          <div><span className="font-medium">Plan:</span> {plan.id.charAt(0).toUpperCase() + plan.id.slice(1)}</div>
+          <div><span className="font-medium">Billing:</span> {plan.billingFrequency.charAt(0).toUpperCase() + plan.billingFrequency.slice(1)}</div>
+        </div>
+      </div>
+
+      {/* Bay Configuration */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <h3 className="font-semibold text-gray-900 mb-3">Bay Configuration</h3>
+        <div className="text-sm">
+          <div><span className="font-medium">Total Bays:</span> {bays.length}</div>
+          <div className="mt-2">
+            <span className="font-medium">Bay Names:</span>
+            <div className="flex flex-wrap gap-2 mt-1">
+              {bays.map((bay, index) => (
+                <span key={index} className="bg-white px-2 py-1 rounded text-xs border">
+                  {bay.name}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+          <p className="text-red-600 text-sm">{error}</p>
+        </div>
+      )}
+      
+      {success && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+          <p className="text-green-600 text-sm">✅ Facility created successfully! Redirecting to dashboard...</p>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm mb-1">Facility Name</label>
-          <input
-            value={facilityName}
-            onChange={(e) => setFacilityName(e.target.value)}
-            className="w-full rounded px-3 py-2 bg-slate-800 outline-none"
-            placeholder="Tigers Den Golf"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm mb-1">Facility Subdomain (slug)</label>
-          <div className="flex items-center gap-2">
-            <input
-              value={slug}
-              onChange={(e) => setSlug(e.target.value.toLowerCase())}
-              className="flex-1 rounded px-3 py-2 bg-slate-800 outline-none"
-              placeholder="tigers-den"
-            />
-            <span className="text-sm opacity-80">. {process.env.NEXT_PUBLIC_MAIN_DOMAIN ?? 'teeboxed.com'}</span>
-          </div>
-          <p className="text-xs mt-1 opacity-80">
-            {slugStatus === 'checking' && 'Checking availability…'}
-            {slugStatus === 'ok' && 'Available.'}
-            {slugStatus === 'taken' && 'Already taken.'}
-            {slugStatus === 'invalid' && 'Only lowercase letters, numbers, and hyphens. 3–50 chars.'}
-          </p>
-        </div>
-
-        <div>
-          <label className="block text-sm mb-1">Address (optional)</label>
-          <input
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            className="w-full rounded px-3 py-2 bg-slate-800 outline-none"
-            placeholder="123 Golf St, Denver CO"
-          />
-        </div>
-
-        {error && <div className="text-red-400 text-sm">{error}</div>}
-        {success && <div className="text-emerald-400 text-sm">Facility created successfully!</div>}
-
         <button
           type="submit"
-          disabled={submitting || slugStatus === 'checking'}
-          className="px-4 py-2 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold"
+          disabled={submitting || slugStatus === 'checking' || slugStatus === 'taken' || slugStatus === 'invalid'}
+          className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-semibold py-3 px-4 rounded-lg transition-colors"
         >
-          {submitting ? 'Creating…' : 'Create Facility'}
+          {submitting ? (
+            <span className="flex items-center justify-center">
+              <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Creating Facility...
+            </span>
+          ) : (
+            'Create Facility & Complete Registration'
+          )}
         </button>
       </form>
     </div>
