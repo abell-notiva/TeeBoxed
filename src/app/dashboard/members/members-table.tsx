@@ -123,7 +123,7 @@ export function MembersTable({ data, bookings = [], isAddMemberOpen, setAddMembe
         fullName: '', 
         email: '', 
         phone: '', 
-        membershipType: membershipPlans[0] || 'Non-Member', 
+        membershipType: 'Non-Member', 
         status: 'active',
         membershipExpiry: new Date(),
     },
@@ -137,7 +137,7 @@ export function MembersTable({ data, bookings = [], isAddMemberOpen, setAddMembe
           fullName: '', 
           email: '', 
           phone: '', 
-          membershipType: membershipPlans[0] || 'Non-Member', 
+          membershipType: membershipPlans.length > 0 ? membershipPlans[0] : 'Non-Member', 
           status: 'active', 
           id: undefined, 
           membershipExpiry: oneYearFromNow
@@ -170,10 +170,16 @@ export function MembersTable({ data, bookings = [], isAddMemberOpen, setAddMembe
   }, [viewingMember, bookings]);
 
 
-  const handleSave = (formData: MemberFormData) => {
-    onSave(formData);
-    setAddMemberOpen(false);
-    setEditingMember(null);
+  const handleSave = async (formData: MemberFormData) => {
+    try {
+      await onSave(formData);
+      setAddMemberOpen(false);
+      setEditingMember(null);
+      form.reset();
+    } catch (error) {
+      console.error('Error saving member:', error);
+      // Keep dialog open to show error
+    }
   };
 
   const handleDelete = () => {
@@ -362,7 +368,7 @@ export function MembersTable({ data, bookings = [], isAddMemberOpen, setAddMembe
                   <FormItem>
                     <FormLabel>Membership</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                      <FormControl><SelectTrigger><SelectValue placeholder="Select membership type" /></SelectTrigger></FormControl>
                       <SelectContent>
                         <SelectItem value="Non-Member">Non-Member</SelectItem>
                         {membershipPlans.map(planName => (
@@ -376,7 +382,7 @@ export function MembersTable({ data, bookings = [], isAddMemberOpen, setAddMembe
                   <FormItem>
                     <FormLabel>Status</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                      <FormControl><SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
                       <SelectContent>
                         <SelectItem value="active">Active</SelectItem>
                         <SelectItem value="inactive">Inactive</SelectItem>
