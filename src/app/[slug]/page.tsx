@@ -119,15 +119,18 @@ export default function Page() {
 
     }, [slug]);
 
+    // Handle redirect when facility is not found
+    useEffect(() => {
+        if (!loading && !facility) {
+            router.replace('/find-facility');
+        }
+    }, [loading, facility, router]);
+
     if (loading) {
         return <div className="flex h-screen w-full items-center justify-center">Loading facility...</div>;
     }
 
     if (!facility) {
-        // Use Next.js router for proper client-side navigation
-        useEffect(() => {
-            router.replace('/find-facility');
-        }, [router]);
         return <div className="flex h-screen w-full items-center justify-center">Facility not found. Redirecting to search...</div>;
     }
 
