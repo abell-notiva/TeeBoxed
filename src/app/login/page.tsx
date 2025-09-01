@@ -5,6 +5,7 @@ import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from 'firebas
 import { getFirestore, doc, getDoc } from 'firebase/firestore';
 import { app } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 export default function FacilityLogin() {
   const [email, setEmail] = useState('');
@@ -51,9 +52,74 @@ export default function FacilityLogin() {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    try { await signInWithEmailAndPassword(auth, email, password); }
-    catch (err: any) { setError(err.message || 'Login failed'); }
-    finally { setLoading(false); }
+    
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      
+      // Check user role and redirect appropriately
+      const host = window.location.host;
+      const main = process.env.NEXT_PUBLIC_MAIN_DOMAIN || 'teeboxed.com';
+      let slug: string | null = null;
+      
+      if (host.endsWith(`.${main}`)) {
+        slug = host.slice(0, -(main.length + 1));
+      }
+      
+      if (slug) {
+        // Facility-specific login - check user role for this facility
+        try {
+          const { query, where, collection, getDocs } = await import('firebase/firestore');
+          const facilitiesCol = collection(db, 'facilities');
+          const snap = await getDocs(query(facilitiesCol, where('slug', '==', slug)));
+          
+          if (!snap.empty) {
+            const facilityId = snap.docs[0].id;
+            const staffSnap = await getDoc(doc(db, 'facilities', facilityId, 'staff', user.uid));
+            const role = staffSnap.exists() ? (staffSnap.data()?.role || 'member') : 'member';
+            
+            if (role === 'owner') {
+              router.replace('/dashboard');
+            } else if (['admin','staff','manager','trainer','maintenance'].includes(role)) {
+              router.replace(`/${slug}/dashboard`);
+            } else {
+              router.replace(`/${slug}/portal`);
+            }
+          } else {
+            setError('Facility not found');
+            setLoading(false);
+            return;
+          }
+        } catch (roleError) {
+          console.error('Error checking user role:', roleError);
+          setError('Unable to verify access permissions');
+          setLoading(false);
+          return;
+        }
+      } else {
+        // Main domain login - redirect to dashboard
+        router.replace('/dashboard');
+      }
+    } catch (err: any) {
+      let errorMessage = 'Login failed';
+      
+      if (err.code === 'auth/invalid-credential') {
+        errorMessage = 'Invalid email or password. Please check your credentials and try again.';
+      } else if (err.code === 'auth/user-not-found') {
+        errorMessage = 'No account found with this email address.';
+      } else if (err.code === 'auth/wrong-password') {
+        errorMessage = 'Incorrect password. Please try again.';
+      } else if (err.code === 'auth/too-many-requests') {
+        errorMessage = 'Too many failed attempts. Please try again later.';
+      } else if (err.code === 'auth/user-disabled') {
+        errorMessage = 'This account has been disabled. Please contact support.';
+      } else if (err.code === 'auth/invalid-email') {
+        errorMessage = 'Please enter a valid email address.';
+      }
+      
+      setError(errorMessage);
+      setLoading(false);
+    }
   }
 
   return (
@@ -63,6 +129,11 @@ export default function FacilityLogin() {
           <div className="text-center">
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h1>
             <p className="text-gray-600">Sign in to your facility dashboard</p>
+            {!loading && (
+              <p className="text-sm text-gray-500 mt-2">
+                Don't have an account? <Link href="/register" className="text-green-600 hover:text-green-700 font-medium">Create one here</Link>
+              </p>
+            )}
           </div>
           
           <form onSubmit={handleLogin} className="space-y-4">
