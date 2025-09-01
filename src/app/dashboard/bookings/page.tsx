@@ -3,7 +3,9 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { Button } from '@/components/ui/button';
-import { PlusCircle } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { PlusCircle, Calendar, AlertCircle, Clock, Users } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Select,
   SelectContent,
@@ -35,7 +37,6 @@ import {
 import { addMinutes, format, parse } from 'date-fns';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Terminal } from 'lucide-react';
 
 
 interface FacilitySettings {
@@ -43,7 +44,13 @@ interface FacilitySettings {
     businessHours?: {
       [day: string]: { open: string; close: string; isOpen: boolean };
     };
-    // other settings can be added here
+}
+
+interface Facility {
+    id: string;
+    name: string;
+    slug: string;
+    settings?: FacilitySettings;
 }
 
 function BookingsPageContent() {
@@ -51,17 +58,20 @@ function BookingsPageContent() {
     const searchParams = useSearchParams();
     const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
-    const [facilities, setFacilities] = useState<{id: string, name: string}[]>([]);
+    const [error, setError] = useState<string | null>(null);
+    const [facilities, setFacilities] = useState<Facility[]>([]);
     const [selectedFacility, setSelectedFacility] = useState<string | null>(null);
     const [facilitySettings, setFacilitySettings] = useState<FacilitySettings>({});
 
     const [bays, setBays] = useState<Bay[]>([]);
+    const [baysLoading, setBaysLoading] = useState(false);
     const [bookings, setBookings] = useState<Booking[]>([]);
+    const [bookingsLoading, setBookingsLoading] = useState(false);
     const [members, setMembers] = useState<Member[]>([]);
+    const [membersLoading, setMembersLoading] = useState(false);
     
     const [isBookingFormOpen, setBookingFormOpen] = useState(false);
     const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
-    const [error, setError] = useState<string | null>(null);
     
     const [overrideConfirmOpen, setOverrideConfirmOpen] = useState(false);
     const [bookingToOverride, setBookingToOverride] = useState<BookingFormData | null>(null);
@@ -89,16 +99,26 @@ function BookingsPageContent() {
         
         const fetchFacilities = async () => {
             setLoading(true);
+            setError(null);
             try {
                 const q = query(collection(db, 'facilities'), where('ownerId', '==', user.uid));
                 const querySnapshot = await getDocs(q);
-                const userFacilities = querySnapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name as string }));
+                const userFacilities = querySnapshot.docs.map(doc => {
+                    const data = doc.data();
+                    return {
+                        id: doc.id,
+                        name: data.name as string,
+                        slug: data.slug as string,
+                        settings: data.settings
+                    };
+                });
                 setFacilities(userFacilities);
                 if (userFacilities.length > 0) {
                     setSelectedFacility(userFacilities[0].id);
                 }
             } catch (error) {
                 console.error('Error fetching facilities:', error);
+                setError("Failed to load facilities. Please try again.");
             }
             setLoading(false);
         };
@@ -126,49 +146,92 @@ function BookingsPageContent() {
             setBays([]);
             setBookings([]);
             setMembers([]);
+            setFacilitySettings({});
             return;
-        };
+        }
+
+        setBaysLoading(true);
+        setBookingsLoading(true);
+        setMembersLoading(true);
+        setError(null);
 
         const bayQuery = query(collection(db, `facilities/${selectedFacility}/bays`), orderBy('name'));
         const bayUnsubscribe = onSnapshot(bayQuery, (snapshot) => {
-            const fetchedBays = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Bay));
-            setBays(fetchedBays);
+            try {
+                const fetchedBays = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Bay));
+                setBays(fetchedBays);
+                setBaysLoading(false);
+            } catch (error) {
+                console.error("Error processing bays data:", error);
+                setError("Failed to load bays data.");
+                setBaysLoading(false);
+            }
+        }, (error) => {
+            console.error("Error listening to bays:", error);
+            setError("Failed to load bays. Please try again.");
+            setBaysLoading(false);
         });
         
         const bookingQuery = query(collection(db, `facilities/${selectedFacility}/bookings`));
         const bookingUnsubscribe = onSnapshot(bookingQuery, (snapshot) => {
-            const fetchedBookings = snapshot.docs.map(doc => {
-                const data = doc.data();
-                return {
-                    id: doc.id,
-                    ...data,
-                    startTime: (data.startTime as Timestamp).toDate(),
-                    endTime: (data.endTime as Timestamp).toDate(),
-                } as Booking
-            });
-            setBookings(fetchedBookings);
+            try {
+                const fetchedBookings = snapshot.docs.map(doc => {
+                    const data = doc.data();
+                    return {
+                        id: doc.id,
+                        ...data,
+                        startTime: (data.startTime as Timestamp).toDate(),
+                        endTime: (data.endTime as Timestamp).toDate(),
+                    } as Booking;
+                });
+                setBookings(fetchedBookings);
+                setBookingsLoading(false);
+            } catch (error) {
+                console.error("Error processing bookings data:", error);
+                setError("Failed to load bookings data.");
+                setBookingsLoading(false);
+            }
+        }, (error) => {
+            console.error("Error listening to bookings:", error);
+            setError("Failed to load bookings. Please try again.");
+            setBookingsLoading(false);
         });
 
         const memberQuery = query(collection(db, `facilities/${selectedFacility}/members`));
         const memberUnsubscribe = onSnapshot(memberQuery, (snapshot) => {
-             const fetchedMembers = snapshot.docs.map(doc => {
-                const data = doc.data();
-                return {
-                    id: doc.id,
-                    ...data,
-                    joinDate: (data.joinDate as Timestamp).toDate(),
-                    membershipExpiry: data.membershipExpiry ? (data.membershipExpiry as Timestamp).toDate() : new Date(),
-                } as Member;
-            });
-            setMembers(fetchedMembers);
+            try {
+                const fetchedMembers = snapshot.docs.map(doc => {
+                    const data = doc.data();
+                    return {
+                        id: doc.id,
+                        ...data,
+                        joinDate: (data.joinDate as Timestamp).toDate(),
+                        membershipExpiry: data.membershipExpiry ? (data.membershipExpiry as Timestamp).toDate() : new Date(),
+                    } as Member;
+                });
+                setMembers(fetchedMembers);
+                setMembersLoading(false);
+            } catch (error) {
+                console.error("Error processing members data:", error);
+                setMembersLoading(false);
+            }
+        }, (error) => {
+            console.error("Error listening to members:", error);
+            setMembersLoading(false);
         });
 
-        // Also listen for facility settings changes
+        // Listen for facility settings changes
         const facilityRef = doc(db, 'facilities', selectedFacility);
         const facilityUnsubscribe = onSnapshot(facilityRef, (docSnap) => {
-            if (docSnap.exists()) {
-                setFacilitySettings(docSnap.data().settings || {});
+            try {
+                if (docSnap.exists()) {
+                    setFacilitySettings(docSnap.data().settings || {});
+                }
+            } catch (error) {
+                console.error("Error processing facility settings:", error);
             }
+        }, (error) => {
+            console.error("Error listening to facility:", error);
         });
 
         return () => {
@@ -183,10 +246,12 @@ function BookingsPageContent() {
 
     const handleSaveBooking = async (bookingData: BookingFormData, bypassChecks = false) => {
         if (!selectedFacility || !user || !user.displayName) {
-            setError("No facility ID or user info, cannot save booking.");
+            setError("No facility selected or user not authenticated. Cannot save booking.");
             return;
         }
-        setError(null);
+        
+        try {
+            setError(null);
         
         const [startHour, startMinute] = bookingData.startTime.split(':').map(Number);
         const [endHour, endMinute] = bookingData.endTime.split(':').map(Number);
@@ -321,9 +386,14 @@ function BookingsPageContent() {
             });
         }
         
-        await batch.commit();
-        setBookingFormOpen(false); // Close form on successful save
-        setEditingBooking(null);
+            await batch.commit();
+            setBookingFormOpen(false);
+            setEditingBooking(null);
+        } catch (error) {
+            console.error("Error saving booking:", error);
+            setError("Failed to save booking. Please try again.");
+            throw error;
+        }
     };
 
     const handleConfirmOverride = () => {
@@ -429,23 +499,6 @@ function BookingsPageContent() {
         await batch.commit();
     }
     
-    const handleCompleteBooking = async (bookingId: string) => {
-        if (!selectedFacility) return;
-        const booking = bookings.find(b => b.id === bookingId);
-        if (!booking) return;
-
-        const batch = writeBatch(db);
-
-        // Set booking to completed
-        const bookingRef = doc(db, `facilities/${selectedFacility}/bookings`, bookingId);
-        batch.update(bookingRef, { status: 'completed' });
-
-        // Set bay to available
-        const bayRef = doc(db, `facilities/${selectedFacility}/bays`, booking.bayId);
-        batch.update(bayRef, { status: 'available' });
-
-        await batch.commit();
-    }
     
     const handleExtendTime = async (bookingId: string, minutes: number) => {
         if (!selectedFacility) return;
@@ -463,16 +516,65 @@ function BookingsPageContent() {
         setError(null);
         setEditingBooking(null);
         setBookingFormOpen(true);
-    }
+    };
+    
+    const handleCompleteBooking = async (bookingId: string) => {
+        if (!selectedFacility) return;
+        
+        try {
+            const booking = bookings.find(b => b.id === bookingId);
+            if (!booking) return;
+
+            const batch = writeBatch(db);
+
+            // Set booking to completed
+            const bookingRef = doc(db, `facilities/${selectedFacility}/bookings`, bookingId);
+            batch.update(bookingRef, { status: 'completed' });
+
+            // Set bay to available
+            const bayRef = doc(db, `facilities/${selectedFacility}/bays`, booking.bayId);
+            batch.update(bayRef, { status: 'available' });
+
+            await batch.commit();
+        } catch (error) {
+            console.error("Error completing booking:", error);
+            setError("Failed to complete booking. Please try again.");
+        }
+    };
 
     if (loading) {
-        return <div className="flex items-center justify-center h-screen"><p>Loading...</p></div>;
+        return (
+            <div className="flex flex-col sm:gap-4 sm:py-4 flex-grow">
+                <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
+                    <Skeleton className="h-6 w-32" />
+                </header>
+                <main className="grid flex-1 items-start gap-4 p-4 sm:px-6 sm:py-0 md:gap-8">
+                    <Card>
+                        <CardHeader>
+                            <Skeleton className="h-6 w-24" />
+                            <Skeleton className="h-4 w-64" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                {[...Array(4)].map((_, i) => (
+                                    <Skeleton key={i} className="h-24 w-full" />
+                                ))}
+                            </div>
+                        </CardContent>
+                    </Card>
+                </main>
+            </div>
+        );
     }
 
     if (facilities.length === 0 && !loading) {
         return (
             <div className="flex flex-col items-center justify-center h-screen space-y-4">
-                <p className="text-muted-foreground">No facilities found. Create your first facility to get started.</p>
+                <Calendar className="h-12 w-12 text-muted-foreground" />
+                <div className="text-center space-y-2">
+                    <h3 className="text-lg font-semibold">No Facilities Found</h3>
+                    <p className="text-muted-foreground">Create your first facility to start managing bookings and bays.</p>
+                </div>
                 <Button onClick={() => router.push('/register')}>
                     <PlusCircle className="mr-2 h-4 w-4" /> Create Facility
                 </Button>
@@ -480,14 +582,16 @@ function BookingsPageContent() {
         );
     }
 
-
     return (
         <div className="flex flex-col sm:gap-4 sm:py-4 flex-grow">
             <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
-                <h1 className="text-xl font-semibold">Bays & Bookings</h1>
+                <div className="flex items-center gap-2">
+                    <Calendar className="h-5 w-5" />
+                    <h1 className="text-xl font-semibold">Bays & Bookings</h1>
+                </div>
                 <div className="ml-auto flex items-center gap-2">
                     <Select value={selectedFacility ?? ""} onValueChange={setSelectedFacility}>
-                        <SelectTrigger className="w-[180px]">
+                        <SelectTrigger className="w-[200px]">
                             <SelectValue placeholder="Select Facility" />
                         </SelectTrigger>
                         <SelectContent>
@@ -496,7 +600,7 @@ function BookingsPageContent() {
                             ))}
                         </SelectContent>
                     </Select>
-                    <Button size="sm" className="h-8 gap-1" onClick={handleCreateBookingClick}>
+                    <Button size="sm" className="h-8 gap-1" onClick={handleCreateBookingClick} disabled={!selectedFacility}>
                         <PlusCircle className="h-3.5 w-3.5" />
                         <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
                             Create Booking
@@ -504,31 +608,102 @@ function BookingsPageContent() {
                     </Button>
                 </div>
             </header>
+
+            {error && (
+                <Alert className="mx-4 sm:mx-6">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{error}</AlertDescription>
+                </Alert>
+            )}
+
             <main className="grid flex-1 items-start gap-4 p-4 sm:px-6 sm:py-0 md:gap-8">
-                {selectedFacility ? (
-                    <>
-                        <BayStatus bays={bays} bookings={bookings} onUpdateBayStatus={handleUpdateBayStatus} />
-                        <BookingCalendar 
-                            bookings={bookings} 
-                            bays={bays}
-                            members={members}
-                            isBookingFormOpen={isBookingFormOpen}
-                            setBookingFormOpen={setBookingFormOpen}
-                            editingBooking={editingBooking}
-                            setEditingBooking={setEditingBooking}
-                            onSave={handleSaveBooking}
-                            onCancelBooking={handleCancelBooking}
-                            onUpdateBookingStatus={handleUpdateBookingStatus}
-                            onExtendTime={handleExtendTime}
-                            onCompleteBooking={handleCompleteBooking}
-                            error={error}
-                            setError={setError}
-                        />
-                    </>
+                {!selectedFacility ? (
+                    <Card>
+                        <CardContent className="flex items-center justify-center p-8">
+                            <div className="text-center space-y-2">
+                                <Calendar className="h-12 w-12 text-muted-foreground mx-auto" />
+                                <h3 className="text-lg font-semibold">Select a Facility</h3>
+                                <p className="text-muted-foreground">Choose a facility from the dropdown to view bookings and manage bays.</p>
+                            </div>
+                        </CardContent>
+                    </Card>
                 ) : (
-                    <div className="flex items-center justify-center p-8">
-                        <p className="text-muted-foreground">Select a facility to view bookings and bay status.</p>
-                    </div>
+                    <>
+                        <Card>
+                            <CardHeader>
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <CardTitle className="flex items-center gap-2">
+                                            <Clock className="h-5 w-5" />
+                                            Bay Status
+                                        </CardTitle>
+                                        <CardDescription>
+                                            Real-time bay availability for {facilities.find(f => f.id === selectedFacility)?.name}
+                                        </CardDescription>
+                                    </div>
+                                    <div className="text-sm text-muted-foreground">
+                                        {baysLoading ? "Loading..." : `${bays.length} bays`}
+                                    </div>
+                                </div>
+                            </CardHeader>
+                            <CardContent>
+                                {baysLoading ? (
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        {[...Array(4)].map((_, i) => (
+                                            <Skeleton key={i} className="h-24 w-full" />
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <BayStatus bays={bays} bookings={bookings} onUpdateBayStatus={handleUpdateBayStatus} />
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        <Card>
+                            <CardHeader>
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <CardTitle className="flex items-center gap-2">
+                                            <Calendar className="h-5 w-5" />
+                                            Booking Calendar
+                                        </CardTitle>
+                                        <CardDescription>
+                                            Manage bookings and schedules for {facilities.find(f => f.id === selectedFacility)?.name}
+                                        </CardDescription>
+                                    </div>
+                                    <div className="text-sm text-muted-foreground">
+                                        {bookingsLoading ? "Loading..." : `${bookings.length} bookings`}
+                                    </div>
+                                </div>
+                            </CardHeader>
+                            <CardContent>
+                                {bookingsLoading || membersLoading ? (
+                                    <div className="space-y-4">
+                                        {[...Array(5)].map((_, i) => (
+                                            <Skeleton key={i} className="h-16 w-full" />
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <BookingCalendar 
+                                        bookings={bookings} 
+                                        bays={bays}
+                                        members={members}
+                                        isBookingFormOpen={isBookingFormOpen}
+                                        setBookingFormOpen={setBookingFormOpen}
+                                        editingBooking={editingBooking}
+                                        setEditingBooking={setEditingBooking}
+                                        onSave={handleSaveBooking}
+                                        onCancelBooking={handleCancelBooking}
+                                        onUpdateBookingStatus={handleUpdateBookingStatus}
+                                        onExtendTime={handleExtendTime}
+                                        onCompleteBooking={handleCompleteBooking}
+                                        error={error}
+                                        setError={setError}
+                                    />
+                                )}
+                            </CardContent>
+                        </Card>
+                    </>
                 )}
             </main>
             
@@ -559,8 +734,29 @@ function BookingsPageContent() {
 
 export default function BookingsPage() {
     return (
-        <Suspense fallback={<div className="flex items-center justify-center h-screen"><p>Loading...</p></div>}>
+        <Suspense fallback={
+            <div className="flex flex-col sm:gap-4 sm:py-4 flex-grow">
+                <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
+                    <Skeleton className="h-6 w-32" />
+                </header>
+                <main className="grid flex-1 items-start gap-4 p-4 sm:px-6 sm:py-0 md:gap-8">
+                    <Card>
+                        <CardHeader>
+                            <Skeleton className="h-6 w-24" />
+                            <Skeleton className="h-4 w-64" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="space-y-4">
+                                {[...Array(3)].map((_, i) => (
+                                    <Skeleton key={i} className="h-16 w-full" />
+                                ))}
+                            </div>
+                        </CardContent>
+                    </Card>
+                </main>
+            </div>
+        }>
             <BookingsPageContent />
         </Suspense>
-    )
+    );
 }
