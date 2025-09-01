@@ -505,23 +505,31 @@ function BookingsPageContent() {
                 </div>
             </header>
             <main className="grid flex-1 items-start gap-4 p-4 sm:px-6 sm:py-0 md:gap-8">
-                <BayStatus bays={bays} bookings={bookings} onUpdateBayStatus={handleUpdateBayStatus} />
-                <BookingCalendar 
-                    bookings={bookings} 
-                    bays={bays}
-                    members={members}
-                    isBookingFormOpen={isBookingFormOpen}
-                    setBookingFormOpen={setBookingFormOpen}
-                    editingBooking={editingBooking}
-                    setEditingBooking={setEditingBooking}
-                    onSave={handleSaveBooking}
-                    onCancelBooking={handleCancelBooking}
-                    onUpdateBookingStatus={handleUpdateBookingStatus}
-                    onExtendTime={handleExtendTime}
-                    onCompleteBooking={handleCompleteBooking}
-                    error={error}
-                    setError={setError}
-                />
+                {selectedFacility ? (
+                    <>
+                        <BayStatus bays={bays} bookings={bookings} onUpdateBayStatus={handleUpdateBayStatus} />
+                        <BookingCalendar 
+                            bookings={bookings} 
+                            bays={bays}
+                            members={members}
+                            isBookingFormOpen={isBookingFormOpen}
+                            setBookingFormOpen={setBookingFormOpen}
+                            editingBooking={editingBooking}
+                            setEditingBooking={setEditingBooking}
+                            onSave={handleSaveBooking}
+                            onCancelBooking={handleCancelBooking}
+                            onUpdateBookingStatus={handleUpdateBookingStatus}
+                            onExtendTime={handleExtendTime}
+                            onCompleteBooking={handleCompleteBooking}
+                            error={error}
+                            setError={setError}
+                        />
+                    </>
+                ) : (
+                    <div className="flex items-center justify-center p-8">
+                        <p className="text-muted-foreground">Select a facility to view bookings and bay status.</p>
+                    </div>
+                )}
             </main>
             
             <AlertDialog open={overrideConfirmOpen} onOpenChange={setOverrideConfirmOpen}>

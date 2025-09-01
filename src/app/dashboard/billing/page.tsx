@@ -7,7 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { CheckCircle, Download, Edit, DollarSign } from 'lucide-react';
+import { CheckCircle, Download, Edit, DollarSign, PlusCircle } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { PlanSelectionModal, Plan, PlanID, plansData } from './plan-selection-modal';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
@@ -45,7 +52,8 @@ export default function BillingPage() {
     const router = useRouter();
     const [user, setUser] = React.useState<User | null>(null);
     const [loading, setLoading] = React.useState(true);
-    const [facilityId, setFacilityId] = React.useState<string | null>(null);
+    const [facilities, setFacilities] = React.useState<{id: string, name: string}[]>([]);
+    const [selectedFacility, setSelectedFacility] = React.useState<string | null>(null);
     const [facility, setFacility] = React.useState<Facility | null>(null);
     const [isPlanModalOpen, setPlanModalOpen] = React.useState(false);
 
@@ -63,24 +71,28 @@ export default function BillingPage() {
     React.useEffect(() => {
         if (!user) return;
 
-        const fetchFacilityId = async () => {
+        const fetchFacilities = async () => {
             setLoading(true);
-            const q = query(collection(db, 'facilities'), where('ownerId', '==', user.uid));
-            const querySnapshot = await getDocs(q);
-            if (!querySnapshot.empty) {
-                const facilityDoc = querySnapshot.docs[0];
-                setFacilityId(facilityDoc.id);
-            } else {
-                setLoading(false);
+            try {
+                const q = query(collection(db, 'facilities'), where('ownerId', '==', user.uid));
+                const querySnapshot = await getDocs(q);
+                const userFacilities = querySnapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name as string }));
+                setFacilities(userFacilities);
+                if (userFacilities.length > 0) {
+                    setSelectedFacility(userFacilities[0].id);
+                }
+            } catch (error) {
+                console.error('Error fetching facilities:', error);
             }
+            setLoading(false);
         };
-        fetchFacilityId();
+        fetchFacilities();
     }, [user]);
 
     React.useEffect(() => {
-        if (!facilityId) return;
+        if (!selectedFacility) return;
 
-        const facilityRef = doc(db, 'facilities', facilityId);
+        const facilityRef = doc(db, 'facilities', selectedFacility);
         const unsubscribe = onSnapshot(facilityRef, (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
@@ -105,15 +117,15 @@ export default function BillingPage() {
         });
 
         return () => unsubscribe();
-    }, [facilityId]);
+    }, [selectedFacility]);
 
 
     const handleUpdatePlan = async (newPlan: Plan) => {
-        if (!facilityId || !facility || !user || !user.displayName) return;
+        if (!selectedFacility || !facility || !user || !user.displayName) return;
         
         const batch = writeBatch(db);
         
-        const facilityRef = doc(db, 'facilities', facilityId);
+        const facilityRef = doc(db, 'facilities', selectedFacility);
         
         const isCurrentlyInTrial = facility.plan.isTrial && facility.plan.trialEndDate.getTime() > new Date().getTime();
 
@@ -132,7 +144,7 @@ export default function BillingPage() {
         batch.update(facilityRef, updateData);
 
         // Add audit log
-        const logRef = doc(collection(db, `facilities/${facilityId}/auditLogs`));
+        const logRef = doc(collection(db, `facilities/${selectedFacility}/auditLogs`));
         batch.set(logRef, {
             action: 'update',
             changedBy: user.displayName,
@@ -168,20 +180,45 @@ export default function BillingPage() {
         return <div className="flex items-center justify-center h-screen"><p>Loading billing information...</p></div>;
     }
     
-    if (!facility) {
-        return <div className="flex items-center justify-center h-screen"><p>No facility found for this account.</p></div>;
+    if (facilities.length === 0 && !loading) {
+        return (
+            <div className="flex flex-col items-center justify-center h-screen space-y-4">
+                <p className="text-muted-foreground">No facilities found. Create your first facility to get started.</p>
+                <Button onClick={() => router.push('/register')}>
+                    <PlusCircle className="mr-2 h-4 w-4" /> Create Facility
+                </Button>
+            </div>
+        );
     }
 
-    const trialDaysLeft = Math.ceil((facility.plan.trialEndDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-    const currentPlanDetails = plansData.find(p => p.id === facility.plan.id);
+    const trialDaysLeft = facility ? Math.ceil((facility.plan.trialEndDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : 0;
+    const currentPlanDetails = facility ? plansData.find(p => p.id === facility.plan.id) : null;
 
     return (
         <div className="flex flex-col sm:gap-4 sm:py-4 flex-grow">
             <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
                 <h1 className="text-xl font-semibold">Billing &amp; Subscription</h1>
+                <div className="ml-auto flex items-center gap-2">
+                    <Select value={selectedFacility ?? ""} onValueChange={setSelectedFacility}>
+                        <SelectTrigger className="w-[180px]">
+                            <SelectValue placeholder="Select Facility" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {facilities.map(f => (
+                                <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
             </header>
             <main className="grid flex-1 items-start gap-4 p-4 sm:px-6 sm:py-0 md:gap-8">
-                {facility.plan.isTrial && trialDaysLeft > 0 && (
+                {!facility ? (
+                    <div className="flex items-center justify-center p-8">
+                        <p className="text-muted-foreground">Select a facility to view billing information.</p>
+                    </div>
+                ) : (
+                    <>
+                        {facility.plan.isTrial && trialDaysLeft > 0 && (
                      <Alert variant="default" className="bg-blue-50 border-blue-200 text-blue-800">
                         <CheckCircle className="h-4 w-4 !text-blue-600" />
                         <AlertTitle>You are on a free trial!</AlertTitle>
@@ -322,12 +359,14 @@ export default function BillingPage() {
                     </Card>
                 </div>
                 
-                <PlanSelectionModal 
-                    isOpen={isPlanModalOpen}
-                    setIsOpen={setPlanModalOpen}
-                    currentPlan={facility.plan}
-                    onConfirm={handleUpdatePlan}
-                />
+                        <PlanSelectionModal 
+                            isOpen={isPlanModalOpen}
+                            setIsOpen={setPlanModalOpen}
+                            currentPlan={facility.plan}
+                            onConfirm={handleUpdatePlan}
+                        />
+                    </>
+                )}
             </main>
         </div>
     );
