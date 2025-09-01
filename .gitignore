@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Production
+/build
+/dist
+/out
+
+# Next.js
+.next/
+.swc/
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Firebase
+.firebase/
+firebase-debug.log
+firestore-debug.log
+
+# Large files
+*.node
+*.pack

@@ -1,0 +1,15 @@
+User: hgilmore@teeboxed.com
+Pass: 0Noicu812!!**
+
+
+__________________________________________
+Issues
+__________________________________________
+
+Maintenance: Mark Resolved and Delete not working - Fixed by creating a Cloud Firestore index - Anthony
+Inventory changes are not logging in Audit logging - Fixed - Anthony
+Allow owners to offer Packages and Gift Cards
+Fix *.teeboxed.com facility url routing
+Create OPS portal
+Add 24 hour toggle for 24 hour facility and option for manned or Unmanned
+Fix Broken Registion Flow

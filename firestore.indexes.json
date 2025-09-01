@@ -1,0 +1,12 @@
+{
+  "indexes": [
+    {
+      "collectionId": "maintenance",
+      "fields": [
+        { "fieldPath": "bayId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
