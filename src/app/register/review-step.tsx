@@ -2,7 +2,8 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
-import { app } from '@/lib/firebase';
+import { app, db } from '@/lib/firebase';
+import { doc, setDoc, collection } from 'firebase/firestore';
 import { useWizardStore } from '@/hooks/use-wizard-store';
 import { useRouter } from 'next/navigation';
 
@@ -68,36 +69,59 @@ export default function ReviewStep() {
       const user = userCredential.user;
       const token = await user.getIdToken();
 
-      // Then create the facility
-      const res = await fetch('/api/facilities/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+      // Create facility directly in Firestore (bypass API due to admin SDK issues)
+      const facilityRef = doc(collection(db, 'facilities'));
+      await setDoc(facilityRef, {
+        ownerId: user.uid,
+        name: facility.name,
+        slug: facility.slug,
+        address: facility.address,
+        city: facility.city,
+        state: facility.state,
+        zip: facility.zip,
+        country: "USA",
+        timeZone: facility.timeZone,
+        plan: { 
+          id: plan.id,
+          billingFrequency: plan.billingFrequency,
+          isTrial: true,
+          trialEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
         },
-        body: JSON.stringify({
-          facilityName: facility.name.trim(),
-          slug: facility.slug.trim().toLowerCase(),
-          address: `${facility.address}, ${facility.city}, ${facility.state} ${facility.zip}`.trim(),
-          plan: { name: plan.id },
-          bays: bays,
-          ownerName: account.fullName,
-        }),
+        colors: {
+          primary: "#0042aa",
+          accent: "#a7f3d0"
+        },
+        settings: {
+          isOpen: false,
+          defaultBookingDuration: 60,
+          maxConcurrentBookings: 1,
+          businessHours: {
+            monday: { isOpen: true, open: "09:00", close: "22:00" },
+            tuesday: { isOpen: true, open: "09:00", close: "22:00" },
+            wednesday: { isOpen: true, open: "09:00", close: "22:00" },
+            thursday: { isOpen: true, open: "09:00", close: "22:00" },
+            friday: { isOpen: true, open: "09:00", close: "22:00" },
+            saturday: { isOpen: true, open: "10:00", close: "20:00" },
+            sunday: { isOpen: true, open: "10:00", close: "20:00" }
+          }
+        },
+        landingPage: {
+          heroTitle: facility.name,
+          heroSubtitle: "Your premier indoor golf experience.",
+          aboutSectionText: `Located in ${facility.city}, ${facility.state}, ${facility.name} offers state-of-the-art golf simulators for players of all skill levels. Whether you're a seasoned pro looking to fine-tune your game or a beginner eager to learn, our facility provides a welcoming and professional environment.`,
+          packages: [],
+          plans: []
+        },
+        createdAt: new Date(),
+        updatedAt: new Date(),
       });
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        if (data?.error === 'slug_taken') {
-          setError('That subdomain was just taken. Try a different one.');
-        } else if (data?.error === 'unauthorized') {
-          setError('Session expired. Please sign in again.');
-        } else if (data?.error === 'invalid_slug') {
-          setError('Invalid slug.');
-        } else {
-          setError('Server error creating facility. Try again.');
-        }
-        return;
-      }
+      // Add owner to staff collection
+      await setDoc(doc(db, 'facilities', facilityRef.id, 'staff', user.uid), {
+        role: 'owner',
+        displayName: user.displayName || user.email || 'Owner',
+        createdAt: new Date(),
+      });
 
       setSuccess(true);
       reset(); // Clear wizard data

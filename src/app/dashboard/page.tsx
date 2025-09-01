@@ -189,12 +189,17 @@ export default function DashboardPage() {
         if (!user) return;
         
         const fetchFacilities = async () => {
-            const q = query(collection(db, 'facilities'), where('ownerId', '==', user.uid));
-            const querySnapshot = await getDocs(q);
-            const userFacilities = querySnapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name as string }));
-            setFacilities(userFacilities);
-            if (userFacilities.length > 0) {
-                setSelectedFacility(userFacilities[0].id);
+            try {
+                const q = query(collection(db, 'facilities'), where('ownerId', '==', user.uid));
+                const querySnapshot = await getDocs(q);
+                const userFacilities = querySnapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name as string }));
+                setFacilities(userFacilities);
+                if (userFacilities.length > 0) {
+                    setSelectedFacility(userFacilities[0].id);
+                }
+            } catch (error) {
+                console.error('Error fetching facilities:', error);
+                setFacilities([]);
             }
         };
 
@@ -398,7 +403,14 @@ export default function DashboardPage() {
     <main className="grid flex-1 items-start gap-4 p-4 sm:px-6 sm:py-0 md:gap-8">
         <div className="space-y-4">
         
-        {isFetchingData || !facilityInfo ? (
+        {facilities.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-8 space-y-4">
+                <p className="text-muted-foreground">No facilities found. Create your first facility to get started.</p>
+                <Button onClick={() => router.push('/register')}>
+                    <PlusCircle className="mr-2 h-4 w-4" /> Create Facility
+                </Button>
+            </div>
+        ) : isFetchingData || !facilityInfo ? (
             <div className="flex items-center justify-center p-8">
                 <p className="text-muted-foreground">Loading facility data...</p>
             </div>

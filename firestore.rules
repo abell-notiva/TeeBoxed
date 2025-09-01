@@ -18,13 +18,23 @@ service cloud.firestore {
         return isSignedIn() &&
                exists(/databases/$(database)/documents/facilities/$(facilityId)/staff/$(request.auth.uid));
       }
-      allow read: if isOwner() || isStaff();
-      allow create: if isOwner() && request.resource.data.ownerId == request.auth.uid;
+      // Allow owners to read all facilities they own
+      allow read: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      // Allow staff to read their specific facility
+      allow read: if isStaff();
+      // Allow facility creation by authenticated users
+      allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid;
       allow update, delete: if isOwner();
+      
       match /{subcollection}/{docId} {
         allow read: if isOwner() || isStaff();
         allow create, update, delete: if isOwner() || isStaff();
       }
+    }
+    
+    // Allow users to query facilities by ownerId for dashboard
+    match /facilities/{document=**} {
+      allow read: if isSignedIn() && resource.data.ownerId == request.auth.uid;
     }
   }
 }
