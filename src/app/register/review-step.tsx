@@ -85,7 +85,8 @@ export default function ReviewStep() {
           id: plan.id,
           billingFrequency: plan.billingFrequency,
           isTrial: true,
-          trialEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
+          trialEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+          nextBillingDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
         },
         colors: {
           primary: "#0042aa",

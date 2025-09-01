@@ -6,6 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { PlusCircle, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { MembersTable, Member } from './members-table';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
@@ -36,7 +43,8 @@ export default function MembersPage() {
     const searchParams = useSearchParams();
     const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
-    const [facilityId, setFacilityId] = useState<string | null>(null);
+    const [facilities, setFacilities] = useState<{id: string, name: string}[]>([]);
+    const [selectedFacility, setSelectedFacility] = useState<string | null>(null);
     const [membershipPlans, setMembershipPlans] = useState<string[]>([]);
     
     const [members, setMembers] = useState<Member[]>([]);
@@ -64,38 +72,32 @@ export default function MembersPage() {
     useEffect(() => {
         if (!user) return;
         
-        const fetchFacility = async () => {
+        const fetchFacilities = async () => {
             setLoading(true);
             try {
                 const q = query(collection(db, 'facilities'), where('ownerId', '==', user.uid));
                 const querySnapshot = await getDocs(q);
-                if (!querySnapshot.empty) {
-                    const facilityDoc = querySnapshot.docs[0];
-                    setFacilityId(facilityDoc.id);
-
-                    // Fetch membership plans from facility settings
-                    const facilityData = facilityDoc.data();
-                    if (facilityData.landingPage && Array.isArray(facilityData.landingPage.plans)) {
-                        const planNames = facilityData.landingPage.plans.map((p: LandingPagePlan) => p.name);
-                        setMembershipPlans(planNames);
-                    }
+                const userFacilities = querySnapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name as string }));
+                setFacilities(userFacilities);
+                if (userFacilities.length > 0) {
+                    setSelectedFacility(userFacilities[0].id);
                 }
             } catch (error) {
-                console.error("Error fetching facility: ", error);
+                console.error("Error fetching facilities: ", error);
             } finally {
                 setLoading(false);
             }
         };
-        fetchFacility();
+        fetchFacilities();
     }, [user]);
 
     useEffect(() => {
-        if (!facilityId) {
+        if (!selectedFacility) {
             setMembers([]);
             return;
         }
 
-        const memberQuery = query(collection(db, `facilities/${facilityId}/members`));
+        const memberQuery = query(collection(db, `facilities/${selectedFacility}/members`));
         const memberUnsubscribe = onSnapshot(memberQuery, (snapshot) => {
              const fetchedMembers = snapshot.docs.map(doc => {
                 const data = doc.data();
@@ -110,7 +112,7 @@ export default function MembersPage() {
         });
 
         // Also listen for changes on facility to update plans dynamically
-        const facilityRef = doc(db, 'facilities', facilityId);
+        const facilityRef = doc(db, 'facilities', selectedFacility);
         const facilityUnsubscribe = onSnapshot(facilityRef, (docSnap) => {
             if (docSnap.exists()) {
                 const facilityData = docSnap.data();
@@ -129,10 +131,10 @@ export default function MembersPage() {
             facilityUnsubscribe();
         }
 
-    }, [facilityId]);
+    }, [selectedFacility]);
 
     const handleSaveMember = async (memberData: any) => {
-        if (!facilityId) {
+        if (!selectedFacility) {
             console.error("No facility ID found, cannot save member.");
             return;
         };
@@ -143,11 +145,11 @@ export default function MembersPage() {
         };
         
         if (memberData.id) {
-            const memberRef = doc(db, `facilities/${facilityId}/members`, memberData.id);
+            const memberRef = doc(db, `facilities/${selectedFacility}/members`, memberData.id);
             const { id, joinDate, ...updateData } = dataToSave;
             await updateDoc(memberRef, updateData);
         } else {
-            const collectionRef = collection(db, `facilities/${facilityId}/members`);
+            const collectionRef = collection(db, `facilities/${selectedFacility}/members`);
             const { id, ...createData } = dataToSave;
             await addDoc(collectionRef, { 
                 ...createData, 
@@ -157,8 +159,8 @@ export default function MembersPage() {
     };
     
     const handleDeleteMember = async (memberId: string) => {
-        if (!facilityId) return;
-        const memberRef = doc(db, `facilities/${facilityId}/members`, memberId);
+        if (!selectedFacility) return;
+        const memberRef = doc(db, `facilities/${selectedFacility}/members`, memberId);
         await deleteDoc(memberRef);
     };
 
@@ -166,8 +168,15 @@ export default function MembersPage() {
         return <div className="flex items-center justify-center h-screen"><p>Loading...</p></div>;
     }
 
-    if (!facilityId && !loading) {
-        return <div className="flex items-center justify-center h-screen"><p>No facility found for this account.</p></div>;
+    if (facilities.length === 0 && !loading) {
+        return (
+            <div className="flex flex-col items-center justify-center h-screen space-y-4">
+                <p className="text-muted-foreground">No facilities found. Create your first facility to get started.</p>
+                <Button onClick={() => router.push('/register')}>
+                    <PlusCircle className="mr-2 h-4 w-4" /> Create Facility
+                </Button>
+            </div>
+        );
     }
 
     const filteredMembers = members.filter(member => 
@@ -180,42 +189,60 @@ export default function MembersPage() {
         <div className="flex flex-col sm:gap-4 sm:py-4 flex-grow">
             <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
                 <h1 className="text-xl font-semibold">Members</h1>
-                <div className="relative ml-auto flex-1 md:grow-0">
-                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        type="search"
-                        placeholder="Search by name, email, or phone..."
-                        className="w-full rounded-lg bg-background pl-8 md:w-[200px] lg:w-[336px]"
-                        value={filter}
-                        onChange={(e) => setFilter(e.target.value)}
-                    />
+                <div className="ml-auto flex items-center gap-2">
+                    <Select value={selectedFacility ?? ""} onValueChange={setSelectedFacility}>
+                        <SelectTrigger className="w-[180px]">
+                            <SelectValue placeholder="Select Facility" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {facilities.map(f => (
+                                <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <div className="relative flex-1 md:grow-0">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            type="search"
+                            placeholder="Search members..."
+                            className="w-full rounded-lg bg-background pl-8 md:w-[200px] lg:w-[250px]"
+                            value={filter}
+                            onChange={(e) => setFilter(e.target.value)}
+                        />
+                    </div>
+                    <Button size="sm" className="h-8 gap-1" onClick={() => setAddMemberOpen(true)} disabled={!selectedFacility}>
+                        <PlusCircle className="h-3.5 w-3.5" />
+                        <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
+                            Add Member
+                        </span>
+                    </Button>
                 </div>
-                <Button size="sm" className="h-8 gap-1" onClick={() => setAddMemberOpen(true)}>
-                    <PlusCircle className="h-3.5 w-3.5" />
-                    <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
-                        Add Member
-                    </span>
-                </Button>
             </header>
             <main className="grid flex-1 items-start gap-4 p-4 sm:px-6 sm:py-0 md:gap-8">
-                 <Card>
-                    <CardHeader>
-                        <CardTitle>Member List</CardTitle>
-                        <CardDescription>
-                            View, manage, and add members to your facility. Click a row to see booking history.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <MembersTable 
-                            data={filteredMembers}
-                            isAddMemberOpen={isAddMemberOpen}
-                            setAddMemberOpen={setAddMemberOpen}
-                            onSave={handleSaveMember}
-                            onDelete={handleDeleteMember}
-                            membershipPlans={membershipPlans}
-                        />
-                    </CardContent>
-                </Card>
+                {!selectedFacility ? (
+                    <div className="flex items-center justify-center p-8">
+                        <p className="text-muted-foreground">Select a facility to view and manage members.</p>
+                    </div>
+                ) : (
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Member List</CardTitle>
+                            <CardDescription>
+                                View, manage, and add members to your facility. Click a row to see booking history.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <MembersTable 
+                                data={filteredMembers}
+                                isAddMemberOpen={isAddMemberOpen}
+                                setAddMemberOpen={setAddMemberOpen}
+                                onSave={handleSaveMember}
+                                onDelete={handleDeleteMember}
+                                membershipPlans={membershipPlans}
+                            />
+                        </CardContent>
+                    </Card>
+                )}
             </main>
         </div>
     );

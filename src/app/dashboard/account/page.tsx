@@ -37,17 +37,21 @@ export default function AccountPage() {
                 setUser(currentUser);
                 setPhotoPreview(currentUser.photoURL);
                 
-                // Fetch user data from Firestore
-                const userDocRef = doc(db, 'users', currentUser.uid);
-                const userDocSnap = await getDoc(userDocRef);
-                if (userDocSnap.exists()) {
-                    const userData = userDocSnap.data();
-                    setFullName(userData.fullName || currentUser.displayName || '');
-                    setPhone(userData.phone || '');
-                } else {
+                try {
+                    // Fetch user data from Firestore
+                    const userDocRef = doc(db, 'users', currentUser.uid);
+                    const userDocSnap = await getDoc(userDocRef);
+                    if (userDocSnap.exists()) {
+                        const userData = userDocSnap.data();
+                        setFullName(userData.fullName || currentUser.displayName || '');
+                        setPhone(userData.phone || '');
+                    } else {
+                        setFullName(currentUser.displayName || '');
+                    }
+                } catch (error) {
+                    console.error('Error fetching user data:', error);
                     setFullName(currentUser.displayName || '');
                 }
-
             } else {
                 router.push('/login');
             }
