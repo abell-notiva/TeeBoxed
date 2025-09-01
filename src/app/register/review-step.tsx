@@ -102,9 +102,9 @@ export default function ReviewStep() {
       setSuccess(true);
       reset(); // Clear wizard data
       
-      // Redirect to the new facility dashboard
+      // Redirect to main dashboard (owners use main TeeBoxed dashboard)
       setTimeout(() => {
-        router.push(`/${facility.slug}/dashboard`);
+        router.push('/dashboard');
       }, 2000);
     } catch (err: any) {
       setError(err?.message ?? 'Unexpected error.');

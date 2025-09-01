@@ -31,10 +31,15 @@ export default function FacilityLogin() {
           const facilityId = snap.docs[0].id;
           const staffSnap = await getDoc(doc(db, 'facilities', facilityId, 'staff', user.uid));
           const role = staffSnap.exists() ? (staffSnap.data()?.role || 'member') : 'member';
-          if (['owner','admin','staff','manager','trainer','maintenance'].includes(role)) {
+          if (role === 'owner') {
+            // Owners login to main TeeBoxed dashboard
             router.replace('/dashboard');
+          } else if (['admin','staff','manager','trainer','maintenance'].includes(role)) {
+            // Staff/admin use facility-specific dashboard
+            router.replace(`/${slug}/dashboard`);
           } else {
-            router.replace('/portal');
+            // Members use facility portal
+            router.replace(`/${slug}/portal`);
           }
         } catch {}
       }
